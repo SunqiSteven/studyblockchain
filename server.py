@@ -64,7 +64,7 @@ async def Version(request):
     #     host, port = peername
     #     print(peername)
     try:
-        # host = request.host
+        # host = request.host       
         # print(request.remote)
         _storage['node'].append(host)
     finally:
