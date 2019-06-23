@@ -7,6 +7,7 @@ from cryptography import fernet
 import os,base64
 from aiohttp_session import setup, get_session, session_middleware,new_session
 from aiohttp_session.cookie_storage import EncryptedCookieStorage
+from aiohttp_jinja2 import render_template
 
 import argparse
 
@@ -14,15 +15,10 @@ cmdparser =  argparse.ArgumentParser()
 cmdparser.add_argument('--node',help="link other node")
 args = cmdparser.parse_args()
 
-_storage = dict()
-
-_storage['node'] = []   
-
-if args.node:
-    _storage['node'].append(args.node)
-
+_storage = dict()   
+_storage['node'] = []
 PROJECT_ROOT = os.path.abspath('./')
-# print(PROJECT_ROOT)
+# print(PROJECT_ROOT)   
 @web.middleware
 async def auth(request,handler):
     # print('auth middleware')
@@ -31,7 +27,7 @@ async def auth(request,handler):
     # print(response)
     return response
 
-@aiohttp_jinja2.template('index.html')
+# @aiohttp_jinja2.template('index.html')
 async def Hello(request):
     # print('hello')
     session = await new_session(request)
@@ -39,8 +35,12 @@ async def Hello(request):
     # print(session['user'])
     # return web.HTTPNotFound(body="404 NOT FOUND")
     name = request.match_info.get('name')
+    print(request.cookies)
     # return web.Response(text='Hello {}'.format(name))
-    return {'title':'sunqi'}
+    context = {'title':'sunqi'}
+    resp = render_template('index.html',request,context)
+    resp.set_cookie('_L_G','FFFFFF')
+    return resp
 
 async def pro(request):
     session = await get_session(request)
@@ -48,9 +48,13 @@ async def pro(request):
     try:
         user = session['user']
     except KeyError:
-        return web.Response(text='pro not login')
+        r = web.Response(text='pro not login')
+        r.set_cookie('_gid','33223')
+        return r
     else:
-        return web.Response(text='pro {}'.format(user   ))
+        r = web.Response(text='pro {}'.format(user))
+        r.set_cookie('_uid','00000000')
+        return r
 
 #broadcast node info
 # def broadcast():
@@ -64,11 +68,18 @@ async def Version(request):
     #     host, port = peername
     #     print(peername)
     try:
-        # host = request.host       
-        # print(request.remote)
-        _storage['node'].append(host)
-    finally:
-        return web.Response(text='v1.0.0')
+        assert request.header['content-type'] == 'application/json'
+    except:
+        return web.Response(text="invalid content type")
+    print(request.content)
+    data = await request.content.read()
+    # print(str(request.content.read()))
+    # print(dat
+    return web.Response(text="version")
+    # try:
+    #     assert request.content != None 
+    # finally:
+    #     return web.Response(text='v1.0.0')
 
 app = web.Application(middlewares=[auth])
 aiohttp_jinja2.setup(app,
@@ -81,7 +92,7 @@ app.router.add_static('/static/',
                           name='static')
 app.add_routes([web.get('/hello',Hello)])
 app.add_routes([web.get('/pro',pro)])
-app.add_routes([web.get('/ver',Version)])
+app.add_routes([web.post('/ver',Version)])
 web.run_app(app)
 
 

@@ -61,6 +61,7 @@ def got_result(future):
 #     print(err.message)
 
 
+
 import aiohttp
 
 # session = aiohttp.ClientSession()
@@ -74,15 +75,15 @@ import aiohttp
 # with open('./version.py') as fd:
     # print(fd.read(2))
 # async def request():
-#     session = aiohttp.ClientSession()
+#     session = aiohttp.ClientSession() 
 #     # print(session)
-#     resp = await session.get("http://127.0.0.1:8080")
+#     resp = await ClientSession.get("http://127.0.0.1:8080")
 #     print(resp.status)
 #     text = await resp.text()
 #     print(text)
 #     await session.close()
 
-# loop = asyncio.get_event_loop()
+
 # loop.run_until_complete(request())
 
 
@@ -93,13 +94,21 @@ import aiohttp
 #     fd.write('hello'.encode('utf-8'))
 
 
-
-
-
-
-
-
-
+# async def r():
+#     async with aiohttp.ClientSession() as session:
+#         async with session.get('http://httpbin.org/get') as resp:
+#             print(resp.status)
+#             print(await resp.text())
+# import time
+# async def foo():
+#     # asyncio.sleep(2)
+#     time.sleep(3)
+#     print('323')
+#     return '22'
+# try:
+#     foo().send(None)
+# except StopIteration as err:
+#     print(err.value)
 
 
 
