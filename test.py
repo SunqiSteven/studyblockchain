@@ -2,8 +2,10 @@
 import hashlib
 import time
 import json
-
+import requests
+import argparse
 import _thread
+import socket
 
 from aiohttp import web
 
@@ -42,26 +44,8 @@ class Block():
     Transaction
 """
 class Tx():
-    def __init__(self,from_address,to_address,value):
-        self.from_address = from_address
-        self.to_address = to_address
-        self.value = value
-        self.timestamp = round(time.time())
-        # self.txHash = self.getTxHash()
-    def getTxHash(self):
-        return hash_sha256((self.from_address \
-            + self.to_address \
-            + str(self.timestamp) \
-            + str(self.value)).encode('utf-8'))
-    def toJson(self):
-        tx_dict = {
-            'from_address':self.from_address,
-            'to_address':self.to_address,
-            'value': self.value
-        }
-        return json.dumps(tx_dict)
     @classmethod
-    def calc_merkle_root(self,trx):
+    def calc_merkle_root(cls,trx):
         if len(trx) == 0:
             return ''
         if len(trx) % 2 != 0:
@@ -80,20 +64,25 @@ class Tx():
     async def  create_tx(self,request):
         data = await request.content.read()
         try:
-            trx_data = json.loads(data.decode('utf-8'))
+            tx_data = json.loads(data.decode('utf-8'))
         except:
             return web.json_response({'status':"fail",'msg':'params format error'})
         try:
-            assert 'from_address' in trx_data,'unknow from_address'
-            assert 'to_address' in trx_data,'unknow to_address'
-            assert 'value' in trx_data,'unknow value'
-            assert trx_data['value'] < 1000 , 'invalid value'
+            assert 'sig' in tx_data, 'unknow sig'
+            assert 'from_address' in tx_data,'unknow from_address'
+            assert 'to_address' in tx_data,'unknow to_address'
+            assert 'value' in tx_data,'unknow value'
+            assert tx_data['value'] < 1000 , 'invalid value'
+            assert 'timestamp' in tx_data, 'unknow timestamp'
         except AssertionError as err:
             raise CREATE_TX_ERROR(err)
-        tx = Tx(trx_data['from_address'],trx_data['to_address'],trx_data['value'])
-        txHash = tx.getTxHash()
-        TX_POOL[txHash] = Tx
-        respData = {'status':'success','txHash':txHash}
+        tx_str = ''
+        for key in tx_data:
+            tx_str += str(tx_data[key])
+        tx_hash = hash_sha256(tx_str.encode('utf-8'))
+        tx_data['tx_hash'] = tx_hash
+        TX_POOL.append(tx_data)
+        respData = {'status':'success','txHash':tx_hash}
         resp = web.json_response(respData)
         return resp
 
@@ -105,10 +94,42 @@ class Address():
         self.balance = balance
         self.nonce = nonce
 
-MINE_DIFFICULTY = 0x01* (2 ** (8*(6-3)))
-TX_POOL = {}
+MINE_DIFFICULTY = 2**20
+TX_POOL = []
 BLOCK_CHAIN = []
 GENESIS_BLOCK_HASH = '00' * 32
+PEER_LIST = []
+__VERSION__ = 'v1.0.0'
+SERVER_PORT = '8084'
+"""
+    peer 
+"""
+class Peer():
+    def __init__(self):
+        pass
+    @classmethod
+    async def version(cls,request):
+        data = {'version':__VERSION__}
+        resp = web.json_response(data)
+        return resp
+    @classmethod
+    async def getPeerList(cls,request):
+        return web.json_response(PEER_LIST)
+    @classmethod
+    async def addr(cls,request):
+        data = await request.content.read()
+        try:
+            body = json.loads(data)
+        except:
+            return web.json_response({'status':'fail','msg':'invalid data'})
+        try:
+            assert 'host' in body, 'host not exists'
+            assert 'port' in body, 'port not exists'
+        except AsssertionError as err:
+            return web.json_response({'status':'fail','msg':err.value})
+        body['status'] = 1
+        PEER_LIST.append(body)
+        return web.json_response({'status':'success'})
 """
     mine Block
 """
@@ -116,8 +137,9 @@ def mine():
     timestamp = round(time.time())
     trx = []
     print(TX_POOL,'TX_POOL')
-    for k in TX_POOL:
-        trx.append(k)   
+    tx_pool_len = len(TX_POOL)
+    for index in range(tx_pool_len):
+        trx.append(TX_POOL[index]['tx_hash'])  
     merkle_root = Tx.calc_merkle_root(trx)
     previous_block = BLOCK_CHAIN[-1]['block_hash']
     nonce = 0
@@ -146,7 +168,45 @@ def mine():
         else:
             nonce += 1
     mine()
-
+######
+def get_host_ip():
+    """
+    查询本机ip地址
+    :return: ip
+    """
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+    finally:
+        s.close()
+    return ip
+######
+def check_peer_list():
+    while 1:
+        time.sleep(60)
+        for i in range(len(PEER_LIST)):
+            peer = PEER_LIST[i]
+            r = requests.get('http' + '://' +peer['host'] + ':' + str(peer['port']))
+            if r.status_code != 200:
+                PEER_LIST.pop(i)
+                # peer['status'] = 0
+###
+def createConnect(peer):
+    try:
+        r = requests.get('http://'+ peer + '/version')
+        if r.status_code == 200:
+            host_port = peer.split(':',1)
+            p = {'host':host_port[0],'port':host_port[1],'status':1}
+            PEER_LIST.append(p)
+            ip = get_host_ip()
+            data = {'host':ip,'port':SERVER_PORT}
+            url = 'http://'+ peer + '/addr'
+            # print('addr')
+            r = requests.post(url,data=json.dumps(data))
+            # print(r.text)
+    except:
+        pass
 #
 # tx_1 = Tx('0x123456789','0x987654321',100) 
 # tx_2 = Tx('0x123456789','0x987654321',100) 
@@ -172,18 +232,34 @@ def create_genesis_block():
     }
     BLOCK_CHAIN.append(block)
 
-def server():
+def server(port):
     app = web.Application()
     app.add_routes([
         web.post('/trx/add',Tx.create_tx),
-        web.get('/blockheight/{height}',Block.getBlockByHeight)
+        web.get('/blockheight/{height}',Block.getBlockByHeight),
+        web.get('/peers',Peer.getPeerList),
+        web.get('/version',Peer.version),
+        web.post('/addr',Peer.addr),
     ])
-    web.run_app(app)
+    # host = get_host_ip()
+    web.run_app(app,port=port)
 
 if __name__ == '__main__':
+    cmdParser = argparse.ArgumentParser()
+    cmdParser.add_argument('--peer',help='connect to peer')
+    cmdParser.add_argument('--port',help='server listen port',default=SERVER_PORT)
+    args = cmdParser.parse_args()
+    if args.peer:
+        createConnect(args.peer)
+    #   
     create_genesis_block()
+    #
     _thread.start_new_thread(mine,())
-    server()
+    #
+    _thread.start_new_thread(check_peer_list,())
+    #
+    SERVER_PORT = args.port
+    server(SERVER_PORT)
 
 
 
